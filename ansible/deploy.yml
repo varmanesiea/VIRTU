@@ -1,0 +1,158 @@
+---
+# Playbook Ansible pour déployer l'application sur Kubernetes
+# INF4052 - Virtualisation et Conteneurisation
+
+- name: Déploiement de l'application Vote sur Kubernetes
+  hosts: k8s_master
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    k8s_manifests_dir: /tmp/k8s-manifests
+    local_manifests_dir: ../k8s
+    image_tag: latest  # Peut être remplacé par $CI_COMMIT_SHORT_SHA
+    gitlab_registry: registry.gitlab.com
+    gitlab_project_path: YOUR_GITLAB_USERNAME/voting-app  # À MODIFIER
+    
+  tasks:
+    - name: "Affichage des informations de deploiement"
+      debug:
+        msg:
+          - "=========================================="
+          - "Deploiement sur Kubernetes"
+          - "=========================================="
+          - "Hote cible: {{ ansible_hostname }}"
+          - "Version: {{ image_tag }}"
+          - "Registry: {{ gitlab_registry }}"
+          - "=========================================="
+
+    - name: "Nettoyage du repertoire de manifestes"
+      file:
+        path: "{{ k8s_manifests_dir }}"
+        state: absent
+
+    - name: "Creation du repertoire de manifestes"
+      file:
+        path: "{{ k8s_manifests_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Copie des manifestes Kubernetes vers la VM Master"
+      copy:
+        src: "{{ local_manifests_dir }}/"
+        dest: "{{ k8s_manifests_dir }}/"
+        mode: '0644'
+
+    - name: "Mise a jour du tag d'image dans les deployments"
+      replace:
+        path: "{{ k8s_manifests_dir }}/{{ item }}"
+        regexp: '(image:.*):latest'
+        replace: '\1:{{ image_tag }}'
+      loop:
+        - backend-deployment.yaml
+        - frontend-deployment.yaml
+      when: image_tag != "latest"
+
+    - name: "Verification de la configuration du cluster K3s"
+      command: kubectl cluster-info
+      register: cluster_info
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Erreur: Cluster Kubernetes non accessible"
+      fail:
+        msg: "Le cluster Kubernetes n'est pas accessible. Verifiez que K3s est demarre."
+      when: cluster_info.rc != 0
+
+    - name: "Cluster Kubernetes operationnel"
+      debug:
+        msg: "{{ cluster_info.stdout_lines }}"
+
+    - name: "Verification du secret GitLab Registry"
+      command: kubectl get secret gitlab-registry-secret
+      register: secret_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Secret GitLab Registry non trouve"
+      debug:
+        msg: "Le secret 'gitlab-registry-secret' n'existe pas. Créez-le avec la commande fournie dans le README."
+      when: secret_check.rc != 0
+
+    - name: "Deploiement de PostgreSQL (Database)"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/postgres-deployment.yaml
+      register: postgres_deploy
+
+    - name: "Creation du service PostgreSQL"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/postgres-service.yaml
+      register: postgres_service
+
+    - name: "Attente du demarrage de PostgreSQL (30s)"
+      pause:
+        seconds: 30
+
+    - name: "Deploiement du Backend (API)"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/backend-deployment.yaml
+      register: backend_deploy
+
+    - name: "Creation du service Backend"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/backend-service.yaml
+      register: backend_service
+
+    - name: "Attente du demarrage du Backend (20s)"
+      pause:
+        seconds: 20
+
+    - name: "Deploiement du Frontend (Web)"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/frontend-deployment.yaml
+      register: frontend_deploy
+
+    - name: "Creation du service Frontend (NodePort)"
+      command: kubectl apply -f {{ k8s_manifests_dir }}/frontend-service.yaml
+      register: frontend_service
+
+    - name: "Statut des pods"
+      command: kubectl get pods -o wide
+      register: pods_status
+      changed_when: false
+
+    - name: "Affichage des pods"
+      debug:
+        msg: "{{ pods_status.stdout_lines }}"
+
+    - name: "Statut des services"
+      command: kubectl get services
+      register: services_status
+      changed_when: false
+
+    - name: "Affichage des services"
+      debug:
+        msg: "{{ services_status.stdout_lines }}"
+
+    - name: "Recuperation du NodePort du Frontend"
+      shell: kubectl get service frontend -o jsonpath='{.spec.ports[0].nodePort}'
+      register: frontend_nodeport
+      changed_when: false
+
+    - name: "=========================================="
+      debug:
+        msg:
+          - "=========================================="
+          - "DEPLOIEMENT TERMINE AVEC SUCCES !"
+          - "=========================================="
+          - "Accedez a l'application via:"
+          - "   http://{{ ansible_default_ipv4.address }}:{{ frontend_nodeport.stdout }}"
+          - "   ou"
+          - "   http://{{ ansible_hostname }}:{{ frontend_nodeport.stdout }}"
+          - "=========================================="
+          - "Commandes utiles:"
+          - "   kubectl get pods"
+          - "   kubectl get services"
+          - "   kubectl logs -f <pod-name>"
+          - "=========================================="
+
+    - name: "Nettoyage optionnel du repertoire temporaire"
+      file:
+        path: "{{ k8s_manifests_dir }}"
+        state: absent
+      when: cleanup_after_deploy | default(false)

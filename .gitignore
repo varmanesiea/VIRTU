@@ -1,0 +1,46 @@
+# Fichiers et dossiers à ignorer
+
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Environnement
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build
+dist/
+build/
+
+# Docker
+.dockerignore
+
+# Kubernetes secrets
+*-secret.yaml
+secrets/
+
+# Ansible
+ansible/*.retry
+ansible/.vault_pass
+
+# Temporary files
+tmp/
+temp/

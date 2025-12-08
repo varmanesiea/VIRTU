@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Vote - ESIEA</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Application de Vote</h1>
+        <p class="subtitle">Projet INF4052 - Virtualisation et Conteneurisation</p>
+        
+        <div class="vote-section">
+            <h2>Quel est votre langage de programmation préféré ?</h2>
+            <div class="options">
+                <button class="vote-btn" onclick="vote('Python')">
+                    Python
+                </button>
+                <button class="vote-btn" onclick="vote('JavaScript')">
+                    JavaScript
+                </button>
+                <button class="vote-btn" onclick="vote('Java')">
+                    Java
+                </button>
+                <button class="vote-btn" onclick="vote('Go')">
+                    Go
+                </button>
+            </div>
+        </div>
+
+        <div class="results-section">
+            <h2>Résultats en temps réel</h2>
+            <div id="results">
+                <p>Chargement des résultats...</p>
+            </div>
+        </div>
+
+        <div class="info">
+            <p> Version: <span id="version">1.0.0</span></p>
+            <p> Déployé avec Kubernetes + Ansible</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
