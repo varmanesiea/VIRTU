@@ -1,139 +1,33 @@
-# Pipeline GitLab CI/CD pour l'application de vote
-# INF4052 - Virtualisation et Conteneurisation
-
 stages:
   - build
   - push
 
 variables:
-  # Variables pour le registry GitLab
   REGISTRY: $CI_REGISTRY
-  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: "/certs"
+  TAG: $CI_COMMIT_SHORT_SHA
 
-# Template pour les jobs Docker
-.docker_template:
-  image: docker:24-dind
+build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $REGISTRY/$CI_PROJECT_PATH/frontend:$TAG ./frontend
+    - docker build -t $REGISTRY/$CI_PROJECT_PATH/backend:$TAG ./backend
+  only:
+    - main
+
+push:
+  stage: push
+  image: docker:24
   services:
     - docker:24-dind
   before_script:
-    - echo "Connexion au GitLab Container Registry..."
     - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
-    - echo "Connexion reussie au registry"
-
-# ============================================
-# STAGE: BUILD
-# ============================================
-
-build:frontend:
-  extends: .docker_template
-  stage: build
   script:
-    - echo "Construction de l'image Frontend..."
-    - cd frontend
-    - docker build -t $REGISTRY/$CI_PROJECT_PATH/frontend:$IMAGE_TAG .
-    - docker tag $REGISTRY/$CI_PROJECT_PATH/frontend:$IMAGE_TAG $REGISTRY/$CI_PROJECT_PATH/frontend:latest
-    - echo "Image Frontend construite avec succes"
+    - docker build -t $REGISTRY/$CI_PROJECT_PATH/frontend:$TAG ./frontend
+    - docker build -t $REGISTRY/$CI_PROJECT_PATH/backend:$TAG ./backend
+    - docker push $REGISTRY/$CI_PROJECT_PATH/frontend:$TAG
+    - docker push $REGISTRY/$CI_PROJECT_PATH/backend:$TAG
   only:
     - main
-    - develop
-    - merge_requests
-  tags:
-    - docker
-
-build:backend:
-  extends: .docker_template
-  stage: build
-  script:
-    - echo "Construction de l'image Backend..."
-    - cd backend
-    - docker build -t $REGISTRY/$CI_PROJECT_PATH/backend:$IMAGE_TAG .
-    - docker tag $REGISTRY/$CI_PROJECT_PATH/backend:$IMAGE_TAG $REGISTRY/$CI_PROJECT_PATH/backend:latest
-    - echo "Image Backend construite avec succes"
-  only:
-    - main
-    - develop
-    - merge_requests
-  tags:
-    - docker
-
-# ============================================
-# STAGE: PUSH
-# ============================================
-
-push:frontend:
-  extends: .docker_template
-  stage: push
-  script:
-    - echo "Push de l'image Frontend vers le registry..."
-    - cd frontend
-    - docker build -t $REGISTRY/$CI_PROJECT_PATH/frontend:$IMAGE_TAG .
-    - docker tag $REGISTRY/$CI_PROJECT_PATH/frontend:$IMAGE_TAG $REGISTRY/$CI_PROJECT_PATH/frontend:latest
-    - docker push $REGISTRY/$CI_PROJECT_PATH/frontend:$IMAGE_TAG
-    - docker push $REGISTRY/$CI_PROJECT_PATH/frontend:latest
-    - echo "Image Frontend poussee avec le tag $IMAGE_TAG et latest"
-  dependencies:
-    - build:frontend
-  only:
-    - main
-    - develop
-  tags:
-    - docker
-
-push:backend:
-  extends: .docker_template
-  stage: push
-  script:
-    - echo "Push de l'image Backend vers le registry..."
-    - cd backend
-    - docker build -t $REGISTRY/$CI_PROJECT_PATH/backend:$IMAGE_TAG .
-    - docker tag $REGISTRY/$CI_PROJECT_PATH/backend:$IMAGE_TAG $REGISTRY/$CI_PROJECT_PATH/backend:latest
-    - docker push $REGISTRY/$CI_PROJECT_PATH/backend:$IMAGE_TAG
-    - docker push $REGISTRY/$CI_PROJECT_PATH/backend:latest
-    - echo "Image Backend poussee avec le tag $IMAGE_TAG et latest"
-  dependencies:
-    - build:backend
-  only:
-    - main
-    - develop
-  tags:
-    - docker
-
-# ============================================
-# Job optionnel: Affichage des informations
-# ============================================
-
-info:
-  stage: .pre
-  image: alpine:latest
-  script:
-    - echo "=================================================="
-    - echo "Pipeline GitLab CI - Application de Vote"
-    - echo "=================================================="
-    - echo "Projet: $CI_PROJECT_NAME"
-    - echo "Branche: $CI_COMMIT_REF_NAME"
-    - echo "Commit: $CI_COMMIT_SHORT_SHA"
-    - echo "Auteur: $CI_COMMIT_AUTHOR"
-    - echo "Message: $CI_COMMIT_MESSAGE"
-    - echo "=================================================="
-  only:
-    - main
-    - develop
-    - merge_requests
-
-# ============================================
-# Nettoyage post-build (optionnel)
-# ============================================
-
-cleanup:
-  extends: .docker_template
-  stage: .post
-  script:
-    - echo "Nettoyage des images Docker locales..."
-    - docker system prune -af --volumes || true
-    - echo "Nettoyage termine"
-  when: always
-  only:
-    - main
-    - develop

@@ -1,124 +1,63 @@
-# TP Final INF4052 - Application 3-Tiers sur Kubernetes
+# TP - Application de Vote sur Kubernetes
 
-Application de vote deployee sur un cluster Kubernetes avec CI/CD GitLab.
-
-## Structure du Projet
-
+## Structure
 ```
-├── frontend/           # Interface web (Nginx)
-├── backend/            # API REST (Node.js/Express)
-├── k8s/                # Manifestes Kubernetes
-├── ansible/            # Playbook de deploiement
-├── .gitlab-ci.yml      # Pipeline CI/CD
-└── docker-compose.local.yml  # Tests locaux
+├── frontend/          # Interface web (Nginx)
+├── backend/           # API (Node.js)
+├── k8s/               # Manifeste Kubernetes
+├── ansible/           # Deploiement automatise
+├── docker-compose.yml # Test local
+└── .gitlab-ci.yml     # Pipeline CI/CD
 ```
 
-## 1. Test Local (Docker Compose)
-
+## 1. Test Local
 ```bash
-# Demarrer l'application
-docker compose -f docker-compose.local.yml up -d --build
-
-# Verifier
-docker compose -f docker-compose.local.yml ps
-
+docker compose up -d --build
 # Ouvrir http://localhost:8080
-
-# Arreter
-docker compose -f docker-compose.local.yml down
+docker compose down
 ```
 
-## 2. Pipeline GitLab CI/CD
-
-Le fichier `.gitlab-ci.yml` contient le pipeline avec 2 stages :
-- **build** : Construction des images Docker
-- **push** : Push vers GitLab Container Registry
-
-### Configuration GitLab
-
-1. Creer un projet sur GitLab
-2. Pousser le code :
+## 2. GitLab CI/CD
+1. Creer projet sur gitlab.com
+2. Pousser le code:
 ```bash
-git remote add gitlab https://gitlab.com/VOTRE_USERNAME/voting-app.git
+git remote add gitlab https://gitlab.com/USERNAME/vote.git
 git push gitlab main
 ```
-3. Le pipeline se declenche automatiquement
-4. Verifier dans GitLab > CI/CD > Pipelines
 
-## 3. Cluster Kubernetes (K3s)
+## 3. Creer les VMs (UTM sur Mac)
 
-### Installation Master (VM1)
+### Telecharger Ubuntu Server
+- https://ubuntu.com/download/server (ARM64 pour Mac M1/M2)
+
+### Creer 2 VMs dans UTM
+- VM1 (master): 2 CPU, 2GB RAM
+- VM2 (worker): 2 CPU, 2GB RAM
+- Reseau: Bridged
+
+### Installer K3s
+
+**Sur VM1 (master):**
 ```bash
 curl -sfL https://get.k3s.io | sh -
-sudo cat /var/lib/rancher/k3s/server/node-token  # Token pour worker
+sudo cat /var/lib/rancher/k3s/server/node-token
 ```
 
-### Installation Worker (VM2)
+**Sur VM2 (worker):**
 ```bash
-curl -sfL https://get.k3s.io | K3S_URL=https://<IP_MASTER>:6443 K3S_TOKEN=<TOKEN> sh -
+curl -sfL https://get.k3s.io | K3S_URL=https://<IP_VM1>:6443 K3S_TOKEN=<TOKEN> sh -
 ```
 
-### Verification
+## 4. Deployer
 ```bash
-sudo kubectl get nodes
+# Sur le master
+kubectl apply -f k8s/app.yaml
+kubectl get pods -n vote
+# Acces: http://<IP_VM1>:30080
 ```
 
-## 4. Deploiement sur Kubernetes
-
-### Creer le namespace et le secret
+## 5. Avec Ansible
 ```bash
-kubectl create namespace voting-app
-
-kubectl create secret docker-registry gitlab-registry-secret \
-  --docker-server=registry.gitlab.com \
-  --docker-username=VOTRE_USERNAME \
-  --docker-password=VOTRE_TOKEN \
-  -n voting-app
-```
-
-### Deployer les manifestes
-```bash
-kubectl apply -f k8s/ -n voting-app
-```
-
-### Verification
-```bash
-kubectl get all -n voting-app
-```
-
-### Acces a l'application
-```
-http://<IP_VM_MASTER>:30080
-```
-
-## 5. Deploiement avec Ansible
-
-### Configurer l'inventaire
-Editer `ansible/hosts.ini` avec les IPs de vos VMs.
-
-### Executer le playbook
-```bash
-cd ansible
-ansible-playbook -i hosts.ini deploy.yml
-```
-
-## Ports
-
-| Service    | Port Interne | Port Externe |
-|------------|--------------|--------------|
-| Frontend   | 80           | 30080        |
-| Backend    | 5000         | -            |
-| PostgreSQL | 5432         | -            |
-
-## Commandes Utiles
-
-```bash
-# Logs d'un pod
-kubectl logs -f <pod-name> -n voting-app
-
-# Redemarrer un deployment
-kubectl rollout restart deployment frontend -n voting-app
-
-# Supprimer tout
-kubectl delete -f k8s/ -n voting-app
+# Editer ansible/hosts.ini avec vos IPs
+ansible-playbook -i ansible/hosts.ini ansible/deploy.yml
 ```

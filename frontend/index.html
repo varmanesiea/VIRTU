@@ -2,46 +2,42 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Application Vote - ESIEA</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Vote App</title>
+    <style>
+        body { font-family: Arial; text-align: center; padding: 50px; background: #667eea; color: white; }
+        .btn { padding: 20px 40px; margin: 10px; font-size: 18px; cursor: pointer; border: none; border-radius: 5px; }
+        .btn:hover { opacity: 0.8; }
+        #results { margin-top: 30px; background: white; color: #333; padding: 20px; border-radius: 10px; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Application de Vote</h1>
-        <p class="subtitle">Projet INF4052 - Virtualisation et Conteneurisation</p>
+    <h1>Application de Vote</h1>
+    <p>Quel langage preferez-vous ?</p>
+    <button class="btn" style="background:#3776ab" onclick="vote('Python')">Python</button>
+    <button class="btn" style="background:#f7df1e;color:#000" onclick="vote('JavaScript')">JavaScript</button>
+    <div id="results">Chargement...</div>
+
+    <script>
+        const API = '/api';
         
-        <div class="vote-section">
-            <h2>Quel est votre langage de programmation préféré ?</h2>
-            <div class="options">
-                <button class="vote-btn" onclick="vote('Python')">
-                    Python
-                </button>
-                <button class="vote-btn" onclick="vote('JavaScript')">
-                    JavaScript
-                </button>
-                <button class="vote-btn" onclick="vote('Java')">
-                    Java
-                </button>
-                <button class="vote-btn" onclick="vote('Go')">
-                    Go
-                </button>
-            </div>
-        </div>
-
-        <div class="results-section">
-            <h2>Résultats en temps réel</h2>
-            <div id="results">
-                <p>Chargement des résultats...</p>
-            </div>
-        </div>
-
-        <div class="info">
-            <p> Version: <span id="version">1.0.0</span></p>
-            <p> Déployé avec Kubernetes + Ansible</p>
-        </div>
-    </div>
-
-    <script src="app.js"></script>
+        async function vote(option) {
+            await fetch(API + '/vote', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({option})
+            });
+            loadResults();
+        }
+        
+        async function loadResults() {
+            const res = await fetch(API + '/results');
+            const data = await res.json();
+            document.getElementById('results').innerHTML = data.results
+                .map(r => `<p>${r.option}: ${r.votes} votes</p>`).join('') || 'Aucun vote';
+        }
+        
+        loadResults();
+        setInterval(loadResults, 5000);
+    </script>
 </body>
 </html>
