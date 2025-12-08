@@ -17,6 +17,17 @@ docker compose up -d --build
 docker compose down
 ```
 
+### Accès direct au backend (port hôte)
+
+Le backend est exposé sur le premier port hôte libre détecté. Sur votre machine il est actuellement mappé sur `5001`.
+
+Tester directement le backend :
+```bash
+curl http://localhost:5001/api/health
+curl -X POST http://localhost:5001/api/vote -H 'Content-Type: application/json' -d '{"option":"Python"}'
+curl http://localhost:5001/api/results
+```
+
 ## 2. GitLab CI/CD
 1. Creer projet sur gitlab.com
 2. Pousser le code:
