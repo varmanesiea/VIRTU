@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; }
+h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+h2 { color: #34495e; margin-top: 30px; border-bottom: 2px solid #95a5a6; padding-bottom: 8px; }
+h3 { color: #555; margin-top: 20px; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; }
+pre code { background: none; color: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+th { background: #3498db; color: white; }
+</style>
+</head>
+<body>
+<h1>Rapport Technique - TP Final</h1>
+<h2>Déploiement Automatisé d'une Application 3-Tiers sur Cluster Kubernetes</h2>
+<p><strong>Module</strong> : INF4052 - Virtualisation et Conteneurisation<br />
+<strong>Date</strong> : Décembre 2025</p>
+<hr />
+<h2>1. Architecture et Choix Techniques</h2>
+<h3>Schema d'architecture global</h3>
+<p>On a mis en place l'architecture suivante pour ce projet :</p>
+<pre><code>                         POSTE DE TRAVAIL (Mac)
+                                 |
+                                 | git push
+                                 v
++----------------------------------------------------------------+
+|                          GITLAB.COM                             |
+|                                                                 |
+|    Pipeline CI/CD                    Container Registry         |
+|    +----------------+                +--------------------+     |
+|    | Build Frontend |  ----push---&gt;  | frontend:latest    |     |
+|    | Build Backend  |  ----push---&gt;  | frontend:&lt;sha&gt;     |     |
+|    +----------------+                | backend:latest     |     |
+|                                      | backend:&lt;sha&gt;      |     |
+|                                      +--------------------+     |
++----------------------------------------------------------------+
+                                 |
+                                 | docker pull
+                                 v
++----------------------------------------------------------------+
+|                      CLUSTER K3s                                |
+|                                                                 |
+|   VM MASTER (192.168.64.2)        VM WORKER (192.168.64.3)     |
+|   +----------------------+        +------------------------+    |
+|   | K3s Server           |&lt;------&gt;| K3s Agent              |    |
+|   | API :6443            |        | Execution des pods     |    |
+|   | kubectl              |        | NodePort :30080        |    |
+|   +----------------------+        +------------------------+    |
+|            ^                                                    |
++------------|----------------------------------------------------+
+             |
+             | SSH (ansible-playbook)
+             |
+      POSTE DE TRAVAIL
+</code></pre>
+<h3>Architecture de l'application</h3>
+<pre><code>FRONTEND (nginx)  ---&gt;  BACKEND (nodejs)  ---&gt;  POSTGRESQL
+    :80                     :5000                  :5432
+  NodePort                ClusterIP              ClusterIP
+   30080
+</code></pre>
+<h3>Nos choix techniques</h3>
+<p><strong>Pour les images Docker :</strong></p>
+<p>On a pris des images Alpine partout parce que c'est beaucoup plus leger. Par exemple node:18-alpine fait 170MB au lieu de 900MB pour la version standard. Pareil pour nginx et postgres.</p>
+<p><strong>Pour le taggage des images :</strong></p>
+<p>On tag chaque image avec deux tags :
+- Le SHA du commit pour pouvoir retrouver quelle version exacte tourne
+- "latest" pour simplifier les deploiements de test</p>
+<p><strong>Pour l'orchestrateur :</strong></p>
+<p>On a choisi K3s parce que c'est plus leger que Kubernetes standard. Ca tourne bien sur des petites VMs avec 2GB de RAM. L'installation est rapide, une seule commande et c'est fait.</p>
+<hr />
+<h2>2. Démarche de Mise en Œuvre</h2>
+<h3>Comment on a procede</h3>
+<p><strong>Premiere etape : l'application</strong></p>
+<p>On a cree une appli de vote simple. Le frontend c'est une page HTML avec du JavaScript qui appelle une API. Le backend c'est du Node.js avec Express qui stocke les votes dans PostgreSQL.</p>
+<p>On a d'abord fait tourner ca en local pour verifier que ca marchait.</p>
+<p><strong>Deuxieme etape : les Dockerfiles</strong></p>
+<p>Pour le frontend on a fait un multi-stage build. C'est peut-etre un peu exagere pour du HTML statique mais ca montre qu'on sait le faire :</p>
+<pre><code class="language-dockerfile">FROM nginx:alpine AS build
+COPY index.html /tmp/
+
+FROM nginx:alpine
+COPY --from=build /tmp/index.html /usr/share/nginx/html/
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+</code></pre>
+<p>Pour le backend pareil, le premier stage installe les dependances npm et le deuxieme ne garde que le necessaire.</p>
+<p><strong>Troisieme etape : docker-compose</strong></p>
+<p>On a ecrit un docker-compose.yml pour tester en local. Ca lance les 3 services et on peut tester sur localhost:8080.</p>
+<p><strong>Quatrieme etape : le pipeline GitLab</strong></p>
+<p>On a configure .gitlab-ci.yml pour builder et pusher les images automatiquement a chaque commit sur main. On utilise docker-in-docker pour pouvoir executer les commandes docker dans le runner GitLab.</p>
+<p><strong>Cinquieme etape : les VMs</strong></p>
+<p>On a cree 2 VMs Ubuntu avec UTM (on est sur Mac). On les a configurees en reseau bridge pour qu'elles puissent se parler.</p>
+<p>Sur la premiere VM on a installe K3s en mode server. Sur la deuxieme on a installe K3s en mode agent en lui donnant l'adresse du master et le token.</p>
+<p><strong>Sixieme etape : les manifestes Kubernetes</strong></p>
+<p>On a ecrit les fichiers YAML pour deployer l'appli :
+- Un namespace "vote" pour isoler nos ressources
+- Un secret pour le mot de passe postgres
+- Les deployments et services pour chaque composant</p>
+<p>Le frontend a un service NodePort pour etre accessible de l'exterieur sur le port 30080. Les autres sont en ClusterIP.</p>
+<p><strong>Septieme etape : Ansible</strong></p>
+<p>On a ecrit un playbook qui se connecte au master en SSH, copie les fichiers YAML et execute kubectl apply. Comme ca on n'a pas besoin d'aller sur la VM a chaque fois.</p>
+<hr />
+<h2>3. Difficultés Rencontrées et Solutions</h2>
+<h3>Probleme 1 : le backend plantait au demarrage</h3>
+<p><strong>Ce qui se passait :</strong> Quand on lancait docker-compose, le backend crashait direct avec "connection refused" sur le port 5432.</p>
+<p><strong>Comment on a compris :</strong> On a regarde les logs et on a vu que le backend essayait de se connecter a postgres alors que postgres etait encore en train de demarrer. depends_on verifie juste que le conteneur est lance, pas que postgres est pret.</p>
+<p><strong>Ce qu'on a fait :</strong> On a ajoute un systeme de retry dans le code. Le backend essaie de se connecter 5 fois avec 3 secondes entre chaque essai. Si au bout de 5 fois ca marche pas, il s'arrete.</p>
+<h3>Probleme 2 : le pipeline rebuildait tout deux fois</h3>
+<p><strong>Ce qui se passait :</strong> On avait mis le build dans un stage et le push dans un autre. Mais les images etaient construites deux fois.</p>
+<p><strong>Comment on a compris :</strong> On a realise que chaque stage repart de zero dans GitLab CI. Les images du premier stage n'existent plus dans le deuxieme.</p>
+<p><strong>Ce qu'on a fait :</strong> On a tout mis dans un seul stage. Build puis push direct.</p>
+<h3>Probleme 3 : erreurs YAML chelou</h3>
+<p><strong>Ce qui se passait :</strong> kubectl refusait nos fichiers avec des messages d'erreur pas clairs genre "mapping values not allowed".</p>
+<p><strong>Comment on a compris :</strong> Apres avoir galere un moment on a fini par comprendre que c'etait des problemes d'indentation. En YAML faut etre precis.</p>
+<p><strong>Ce qu'on a fait :</strong> On a utilise un validateur YAML en ligne et on a fait plus attention. L'extension YAML de VS Code aide bien aussi.</p>
+<h3>Probleme 4 : le frontend trouvait pas le backend dans K8s</h3>
+<p><strong>Ce qui se passait :</strong> Ca marchait en local avec docker-compose mais dans K8s le frontend recevait des erreurs quand il appelait /api.</p>
+<p><strong>Comment on a compris :</strong> On avait oublie de creer le Service pour le backend. Du coup le nom "backend" n'etait pas resolu dans le cluster.</p>
+<p><strong>Ce qu'on a fait :</strong> On a cree backend-service.yaml. Apres ca le DNS interne de K8s resolvait "backend" correctement.</p>
+<hr />
+<h2>4. Usage de l'IA Générative (Transparence)</h2>
+<h3>Ce qu'on a utilise</h3>
+<p>On a utilise GitHub Copilot pour nous aider sur certaines parties du projet.</p>
+<h3>Pour quoi faire</h3>
+<ul>
+<li>
+<p><strong>Squelettes de code</strong> : On a demande a l'IA de generer la base du server.js et des Dockerfiles. Ca evite de partir de zero.</p>
+</li>
+<li>
+<p><strong>Comprendre les erreurs</strong> : Quand on avait des erreurs kubectl bizarres, on les copiait et l'IA nous expliquait ce que ca voulait dire.</p>
+</li>
+<li>
+<p><strong>Syntaxe YAML</strong> : Pour les manifestes K8s, on decrivait ce qu'on voulait et l'IA generait le YAML.</p>
+</li>
+</ul>
+<h3>Les erreurs qu'on a du corriger</h3>
+<p>L'IA fait des erreurs, on a du corriger plusieurs choses :</p>
+<ol>
+<li>
+<p>Elle generait du code trop complique. Genre le playbook Ansible faisait 80 lignes alors qu'on avait besoin que de 35.</p>
+</li>
+<li>
+<p>Les chemins de fichiers etaient souvent faux. Elle mettait des chemins qui existaient pas chez nous.</p>
+</li>
+<li>
+<p>Elle ajoutait des trucs inutiles comme des readinessProbe partout. C'est bien en prod mais pour un TP ca compliquait le debug.</p>
+</li>
+</ol>
+<h3>Notre avis</h3>
+<p>C'est utile pour aller plus vite mais faut pas faire confiance aveuglement. On a du relire et corriger pas mal de choses.</p>
+<hr />
+<h2>5. Démonstration (Preuves de fonctionnement)</h2>
+<h3>Test local</h3>
+<pre><code class="language-bash">$ docker compose up -d --build
+[+] Running 3/3
+ ✔ Container postgres Started
+ ✔ Container backend  Started  
+ ✔ Container frontend Started
+
+$ curl http://localhost:8080/api/health
+{&quot;status&quot;:&quot;OK&quot;}
+
+$ curl -X POST http://localhost:8080/api/vote -H 'Content-Type: application/json' -d '{&quot;option&quot;:&quot;Python&quot;}'
+{&quot;success&quot;:true}
+</code></pre>
+<p><strong>[CAPTURE : Application fonctionnelle sur localhost:8080]</strong></p>
+<h3>Pipeline CI/CD</h3>
+<p><strong>[CAPTURE : Pipeline GitLab au vert avec le job "build" passe]</strong></p>
+<h3>Container Registry</h3>
+<p><strong>[CAPTURE : Registry GitLab montrant les images frontend et backend avec les tags latest et sha]</strong></p>
+<h3>Cluster K3s</h3>
+<pre><code class="language-bash">$ kubectl get nodes
+NAME     STATUS   ROLES                  AGE   VERSION
+master   Ready    control-plane,master   2d    v1.28.4+k3s1
+worker   Ready    &lt;none&gt;                 2d    v1.28.4+k3s1
+</code></pre>
+<p><strong>[CAPTURE : Resultat kubectl get nodes avec 2 noeuds Ready]</strong></p>
+<h3>Pods deployes</h3>
+<pre><code class="language-bash">$ kubectl get pods -n vote
+NAME                        READY   STATUS    RESTARTS   AGE
+postgres-xxx                1/1     Running   0          10m
+backend-xxx                 1/1     Running   0          9m
+frontend-xxx                1/1     Running   0          9m
+</code></pre>
+<p><strong>[CAPTURE : Resultat kubectl get pods]</strong></p>
+<h3>Application finale</h3>
+<p><strong>[CAPTURE : Application de vote accessible sur http://192.168.64.2:30080]</strong></p>
+<hr />
+<h2>Conclusion</h2>
+<p>On a reussi a deployer une application 3-tiers complete sur un cluster Kubernetes. Le plus formateur ca a ete de debugger les problemes de communication entre les services. On comprend mieux maintenant comment fonctionne le reseau dans Docker et dans K8s.</p>
+<p>Le projet montre toute la chaine : du code source jusqu'au deploiement automatise avec Ansible.</p>
+<hr />
+<p>🐧</p>
+<p><strong>Depot Git</strong> : [URL a completer]</p>
+</body>
+</html>

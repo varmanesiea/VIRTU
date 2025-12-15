@@ -1,74 +1,53 @@
-# TP - Application de Vote sur Kubernetes
+# Application de Vote - TP Kubernetes
+
+Projet de deploiement d'une app 3-tiers sur K3s.
 
 ## Structure
+
 ```
-├── frontend/          # Interface web (Nginx)
-├── backend/           # API (Node.js)
-├── k8s/               # Manifeste Kubernetes
-├── ansible/           # Deploiement automatise
-├── docker-compose.yml # Test local
-└── .gitlab-ci.yml     # Pipeline CI/CD
+frontend/      -> nginx + html
+backend/       -> nodejs express
+k8s/           -> fichiers kubernetes
+ansible/       -> deploiement auto
 ```
 
-## 1. Test Local
+## Test en local
+
 ```bash
 docker compose up -d --build
-# Ouvrir http://localhost:8080
+```
+
+Ouvrir http://localhost:8080
+
+Pour arreter:
+```bash
 docker compose down
 ```
 
-### Accès direct au backend (port hôte)
+## GitLab CI
 
-Le backend est exposé sur le premier port hôte libre détecté. Sur votre machine il est actuellement mappé sur `5001`.
+Le fichier .gitlab-ci.yml build et push les images sur le registry gitlab.
 
-Tester directement le backend :
-```bash
-curl http://localhost:5001/api/health
-curl -X POST http://localhost:5001/api/vote -H 'Content-Type: application/json' -d '{"option":"Python"}'
-curl http://localhost:5001/api/results
-```
+## Installation K3s
 
-## 2. GitLab CI/CD
-1. Creer projet sur gitlab.com
-2. Pousser le code:
-```bash
-git remote add gitlab https://gitlab.com/USERNAME/vote.git
-git push gitlab main
-```
-
-## 3. Creer les VMs (UTM sur Mac)
-
-### Telecharger Ubuntu Server
-- https://ubuntu.com/download/server (ARM64 pour Mac M1/M2)
-
-### Creer 2 VMs dans UTM
-- VM1 (master): 2 CPU, 2GB RAM
-- VM2 (worker): 2 CPU, 2GB RAM
-- Reseau: Bridged
-
-### Installer K3s
-
-**Sur VM1 (master):**
+Sur le master:
 ```bash
 curl -sfL https://get.k3s.io | sh -
 sudo cat /var/lib/rancher/k3s/server/node-token
 ```
 
-**Sur VM2 (worker):**
+Sur le worker:
 ```bash
-curl -sfL https://get.k3s.io | K3S_URL=https://<IP_VM1>:6443 K3S_TOKEN=<TOKEN> sh -
+curl -sfL https://get.k3s.io | K3S_URL=https://IP_MASTER:6443 K3S_TOKEN=TOKEN sh -
 ```
 
-## 4. Deployer
-```bash
-# Sur le master
-kubectl apply -f k8s/app.yaml
-kubectl get pods -n vote
-# Acces: http://<IP_VM1>:30080
-```
+## Deploiement Ansible
 
-## 5. Avec Ansible
+Modifier les IPs dans ansible/hosts.ini puis:
 ```bash
-# Editer ansible/hosts.ini avec vos IPs
 ansible-playbook -i ansible/hosts.ini ansible/deploy.yml
 ```
+
+## Acces
+
+L'app est accessible sur http://IP_MASTER:30080

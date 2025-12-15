@@ -1,7 +1,11 @@
-FROM node:18-alpine
+FROM node:18-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
-COPY . .
+RUN npm install --production
+
+FROM node:18-alpine
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY server.js .
 EXPOSE 5000
 CMD ["node", "server.js"]

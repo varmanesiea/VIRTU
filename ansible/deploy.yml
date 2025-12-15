@@ -1,11 +1,36 @@
 ---
-- name: Deploy to Kubernetes
+- name: Deploiement vote app
   hosts: master
+  become: yes
   tasks:
-    - name: Copy manifests
+    - name: Creer dossier
+      file:
+        path: /tmp/k8s
+        state: directory
+
+    - name: Copier fichiers
       copy:
         src: ../k8s/
         dest: /tmp/k8s/
 
-    - name: Apply manifests
-      command: kubectl apply -f /tmp/k8s/
+    - name: Appliquer namespace
+      command: kubectl apply -f /tmp/k8s/namespace.yaml
+
+    - name: Appliquer secrets
+      command: kubectl apply -f /tmp/k8s/secrets.yaml
+
+    - name: Deployer postgres
+      command: kubectl apply -f /tmp/k8s/postgres-deployment.yaml -f /tmp/k8s/postgres-service.yaml
+
+    - name: Attendre postgres
+      command: kubectl wait --for=condition=ready pod -l app=postgres -n vote --timeout=60s
+      ignore_errors: yes
+
+    - name: Deployer backend
+      command: kubectl apply -f /tmp/k8s/backend-deployment.yaml -f /tmp/k8s/backend-service.yaml
+
+    - name: Deployer frontend
+      command: kubectl apply -f /tmp/k8s/frontend-deployment.yaml -f /tmp/k8s/frontend-service.yaml
+
+    - name: Verifier pods
+      command: kubectl get pods -n vote

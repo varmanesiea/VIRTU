@@ -11,19 +11,42 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD || 'postgres'
 });
 
-// Init DB
-pool.query(`CREATE TABLE IF NOT EXISTS votes (id SERIAL, option VARCHAR(50))`);
+async function initDB() {
+    for (let i = 0; i < 5; i++) {
+        try {
+            await pool.query('CREATE TABLE IF NOT EXISTS votes (id SERIAL PRIMARY KEY, option VARCHAR(50))');
+            console.log('DB ok');
+            return;
+        } catch (e) {
+            console.log('Attente DB...');
+            await new Promise(r => setTimeout(r, 3000));
+        }
+    }
+    process.exit(1);
+}
 
-app.get('/api/health', (req, res) => res.json({status: 'OK'}));
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'OK' });
+});
 
 app.post('/api/vote', async (req, res) => {
-    await pool.query('INSERT INTO votes (option) VALUES ($1)', [req.body.option]);
-    res.json({success: true});
+    try {
+        await pool.query('INSERT INTO votes (option) VALUES ($1)', [req.body.option]);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.get('/api/results', async (req, res) => {
-    const result = await pool.query('SELECT option, COUNT(*) as votes FROM votes GROUP BY option');
-    res.json({results: result.rows});
+    try {
+        const r = await pool.query('SELECT option, COUNT(*)::int as votes FROM votes GROUP BY option');
+        res.json({ results: r.rows });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
-app.listen(5000, () => console.log('Backend on port 5000'));
+initDB().then(() => {
+    app.listen(5000, () => console.log('Backend port 5000'));
+});
